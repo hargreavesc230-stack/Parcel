@@ -2,10 +2,9 @@ import { mkdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { Buffer } from "node:buffer";
 import type { Route } from "./types";
+import { tokenToStorage } from "../storage";
 
 const dataRoot = resolve(process.env.DATA_DIR ?? "./data");
-const tokenToStorage = new Map<string, { storageId: string; path: string }>();
-
 const base64Url = (bytes: Uint8Array) =>
   Buffer.from(bytes)
     .toString("base64")

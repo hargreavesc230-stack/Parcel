@@ -6,22 +6,12 @@ import type { Route } from "./routes/types";
 const port = Number(process.env.API_PORT ?? "8787");
 
 const routes = await loadRoutes();
-const routeMap = new Map<string, Route>();
-
-for (const route of routes) {
-  const key = routeKey(route.method, route.path);
-  if (routeMap.has(key)) {
-    throw new Error(`[api] duplicate route ${key}`);
-  }
-  routeMap.set(key, route);
-}
 
 const server = Bun.serve({
   port,
   async fetch(req) {
     const url = new URL(req.url);
-    const key = routeKey(req.method, url.pathname);
-    const route = routeMap.get(key);
+    const route = matchRoute(routes, req.method, url.pathname);
     if (!route) {
       return new Response("Not Found", { status: 404 });
     }
@@ -35,23 +25,42 @@ function routeKey(method: string, path: string) {
   return `${method.toUpperCase()} ${path}`;
 }
 
-async function loadRoutes(): Promise<Route[]> {
+function matchRoute(routes: LoadedRoute[], method: string, pathname: string) {
+  const upperMethod = method.toUpperCase();
+  for (const route of routes) {
+    if (route.method !== upperMethod) continue;
+    if (route.match(pathname)) return route;
+  }
+  return null;
+}
+
+type LoadedRoute = Route & { match: (pathname: string) => boolean };
+
+async function loadRoutes(): Promise<LoadedRoute[]> {
   const routesDir = resolve(import.meta.dir, "routes");
   const files: string[] = [];
   await collectRouteFiles(routesDir, files);
   files.sort();
 
-  const loaded: Route[] = [];
+  const loaded: LoadedRoute[] = [];
+  const seen = new Set<string>();
   for (const filePath of files) {
     if (basename(filePath) === "types.ts") continue;
     const mod = await import(pathToFileURL(filePath).href);
     if (!mod.route) continue;
     const route = mod.route as Route;
     validateRoute(route, filePath);
+    const normalizedMethod = route.method.toUpperCase();
+    const key = routeKey(normalizedMethod, route.path);
+    if (seen.has(key)) {
+      throw new Error(`[api] duplicate route ${key}`);
+    }
+    seen.add(key);
     loaded.push({
-      method: route.method.toUpperCase(),
+      method: normalizedMethod,
       path: route.path,
       handle: route.handle,
+      match: buildMatcher(route.path),
     });
   }
 
@@ -85,4 +94,20 @@ function validateRoute(route: Route, filePath: string) {
   if (typeof route.handle !== "function") {
     throw new Error(`[api] route missing handle in ${filePath}`);
   }
+}
+
+function buildMatcher(path: string) {
+  const parts = path.split("/").filter(Boolean);
+  return (pathname: string) => {
+    const pathParts = pathname.split("/").filter(Boolean);
+    if (pathParts.length !== parts.length) return false;
+    for (let i = 0; i < parts.length; i += 1) {
+      const expected = parts[i];
+      const actual = pathParts[i];
+      if (!expected || !actual) return false;
+      if (expected.startsWith(":")) continue;
+      if (expected !== actual) return false;
+    }
+    return true;
+  };
 }

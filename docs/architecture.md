@@ -1,7 +1,13 @@
 # Architecture
 
-Parcel is API-first, streaming-first, and disk-backed. Uploads are accepted via
-`POST /upload` and the request body is streamed directly to disk.
+Parcel is API-first, streaming-first, and disk-backed. Implemented endpoints are:
+
+- `GET /health`
+- `POST /upload`
+- `GET /download/{token}`
+
+Uploads are accepted via `POST /upload` and streamed directly to disk. Downloads
+are streamed back via `GET /download/{token}`.
 
 Access is link-only: the server returns a cryptographically random token after
 upload. The token is the only thing exposed to the client. No accounts, sessions,

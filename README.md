@@ -12,7 +12,7 @@ To run the API:
 bun run dev:api
 ```
 
-To run checks (server must already be running):
+To run checks (script starts and stops the server):
 
 ```bash
 bun run check
@@ -22,5 +22,6 @@ Existing endpoint:
 
 - `GET /health` -> `ok`
 - `POST /upload` -> returns JSON `{ "token": "..." }`
+- `GET /download/{token}` -> streams stored bytes
 
-Downloads are not implemented yet.
+Token-to-storage mappings are currently in memory (alpha), so restarts lose tokens.
