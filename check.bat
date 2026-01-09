@@ -36,9 +36,6 @@ set "PORT=%API_PORT%"
 set "BASE_URL=http://%BASE_HOST%:%PORT%"
 set "LOG_DIR=%ROOT_DIR%logs\check"
 set "RUN_ID=%RANDOM%%RANDOM%"
-set "SERVER_LOG=%LOG_DIR%\server-%RUN_ID%.log"
-set "SERVER_ERR=%LOG_DIR%\server-%RUN_ID%.err.log"
-set "SERVER_PID_FILE=%LOG_DIR%\server-%RUN_ID%.pid"
 set "TEMP_DIR=%LOG_DIR%\temp-%RUN_ID%"
 set "HEALTH_STATUS_FILE=%TEMP_DIR%\health_status.txt"
 set "HEALTH_BODY_FILE=%TEMP_DIR%\health_body.txt"
@@ -54,6 +51,7 @@ set "UPLOAD_PARSE_ERR=%TEMP_DIR%\upload_parse_err.txt"
 set "FAIL=0"
 set "READY=0"
 
+echo [CHECK] expecting server already running
 echo [CHECK] using port %PORT% (from %ENV_FILE%)
 
 if not exist "%LOG_DIR%" (
@@ -72,31 +70,6 @@ if not exist "%TEMP_DIR%" (
   )
 )
 
-echo [CHECK] starting server
-echo [CHECK] server command: bun --cwd %ROOT_DIR%apps/api run dev
-powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $out = '%SERVER_LOG%'; $err = '%SERVER_ERR%'; $p = Start-Process -FilePath 'bun' -ArgumentList '--cwd','%ROOT_DIR%apps/api','run','dev' -WorkingDirectory '%ROOT_DIR%' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -NoNewWindow; [IO.File]::WriteAllText('%SERVER_PID_FILE%', [string]$p.Id, [Text.Encoding]::ASCII)"
-if errorlevel 1 (
-  echo [FAIL] failed to start server
-  set "FAIL=1"
-  goto :cleanup
-)
-
-if not exist "%SERVER_PID_FILE%" (
-  echo [FAIL] server pid file missing
-  set "FAIL=1"
-  goto :cleanup
-)
-
-set /p SERVER_PID=<"%SERVER_PID_FILE%"
-if not defined SERVER_PID (
-  echo [FAIL] server PID not captured
-  set "FAIL=1"
-  goto :cleanup
-)
-
-echo [CHECK] server PID %SERVER_PID%
-echo [CHECK] server log %SERVER_LOG%
-echo [CHECK] server err %SERVER_ERR%
 echo [CHECK] waiting for readiness
 
 for /l %%I in (1,1,%READINESS_ATTEMPTS%) do (
@@ -105,12 +78,6 @@ for /l %%I in (1,1,%READINESS_ATTEMPTS%) do (
   if !errorlevel! EQU 0 (
     set "READY=1"
     goto :ready
-  )
-  call :is_process_running %SERVER_PID%
-  if "!PROCESS_RUNNING!"=="0" (
-    echo [FAIL] server process exited before readiness
-    set "FAIL=1"
-    goto :cleanup
   )
   timeout /t 1 /nobreak >nul
 )
@@ -219,7 +186,7 @@ if not defined UPLOAD_TOKEN (
 echo [PASS] upload token present
 
 echo [CHECK] request details: GET %BASE_URL%%DOWNLOAD_PATH%/!UPLOAD_TOKEN!
-powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $r = Invoke-WebRequest -UseBasicParsing -Uri '%BASE_URL%%DOWNLOAD_PATH%/!UPLOAD_TOKEN!' -Method Get -OutFile '%DOWNLOAD_FILE%' -TimeoutSec 60; [IO.File]::WriteAllText('%DOWNLOAD_STATUS_FILE%', [string]$r.StatusCode, [Text.Encoding]::ASCII)"
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $r = Invoke-WebRequest -UseBasicParsing -Uri '%BASE_URL%%DOWNLOAD_PATH%/!UPLOAD_TOKEN!' -Method Get -OutFile '%DOWNLOAD_FILE%' -PassThru -TimeoutSec 60; [IO.File]::WriteAllText('%DOWNLOAD_STATUS_FILE%', [string]$r.StatusCode, [Text.Encoding]::ASCII)"
 if errorlevel 1 (
   echo [FAIL] download request failed
   set "FAIL=1"
@@ -281,28 +248,6 @@ if "!NEG_STATUS!"=="404" (
 )
 
 :cleanup
-if defined SERVER_PID (
-  echo [CLEANUP] shutting down server %SERVER_PID%
-  taskkill /PID %SERVER_PID% /T /F >nul 2>&1
-  call :is_process_running %SERVER_PID%
-  if "!PROCESS_RUNNING!"=="0" (
-    echo [CLEANUP] process ended
-  ) else (
-    echo [CLEANUP] process still running
-    set "FAIL=1"
-  )
-)
-
-if exist "%SERVER_LOG%" (
-  echo [CLEANUP] server log (tail^)
-  powershell -NoProfile -Command "Get-Content -Path '%SERVER_LOG%' -Tail 40"
-)
-
-if exist "%SERVER_ERR%" (
-  echo [CLEANUP] server err (tail^)
-  powershell -NoProfile -Command "Get-Content -Path '%SERVER_ERR%' -Tail 40"
-)
-
 if exist "%TEMP_DIR%" (
   rmdir /s /q "%TEMP_DIR%"
 )
@@ -312,10 +257,4 @@ if "%FAIL%"=="1" (
 )
 
 echo [PASS] all checks passed
-exit /b 0
-
-:is_process_running
-set "PROCESS_RUNNING=0"
-tasklist /fi "PID eq %~1" | findstr /i "%~1" >nul
-if not errorlevel 1 set "PROCESS_RUNNING=1"
 exit /b 0
