@@ -11,6 +11,7 @@ Current coverage:
 - `GET /download/{token}` and byte-for-byte integrity check
 - `GET /inspect/{token}` with validation of required safe fields
 - Image sanitization behavior based on current `PARCEL_STRIP_IMAGE_METADATA`
+- Error normalization (status, JSON shape, and content-type) for upload, download, and inspect
 
 The script reads `API_PORT`, `DATA_DIR`, `MAX_UPLOAD_SIZE`, and
 `PARCEL_STRIP_IMAGE_METADATA` from `.env` for logging and payload sizing, and

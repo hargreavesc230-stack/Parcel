@@ -25,3 +25,12 @@ only. Unsupported types are stored as-is.
 `GET /inspect/{token}` returns only the safe metadata fields created by the
 server (such as timestamps and byte size). It never exposes storage identifiers
 or internal paths.
+
+All error responses (except `/health`) use a canonical JSON shape:
+
+```
+{ "error": "<code>" }
+```
+
+Supported error codes are: `bad_request`, `not_found`, `payload_too_large`,
+`internal_error` (and `gone` reserved for future expiration).

@@ -25,6 +25,9 @@ Existing endpoints:
 - `GET /download/{token}` -> streams stored bytes
 - `GET /inspect/{token}` -> returns safe metadata fields
 
+Non-2xx responses (except `/health`) use `{ "error": "<code>" }` JSON with
+`application/json` content-type.
+
 Tokens are durable across restarts via an append-only `DATA_DIR/index.jsonl`
 file, and token collisions are handled by regenerating until unique.
 

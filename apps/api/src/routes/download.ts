@@ -1,27 +1,28 @@
 import type { Route } from "./types";
 import { storagePaths, tokenToStorage } from "../storage";
+import { errorResponse } from "../errors";
 
 const handleDownload = async (req: Request) => {
   const url = new URL(req.url);
   const parts = url.pathname.split("/").filter(Boolean);
 
   if (parts.length !== 2 || parts[0] !== "download") {
-    return new Response("Not Found", { status: 404 });
+    return errorResponse(404, "not_found");
   }
 
   const token = parts[1];
   if (!token) {
-    return new Response("Not Found", { status: 404 });
+    return errorResponse(404, "not_found");
   }
   const record = tokenToStorage.get(token);
   if (!record) {
-    return new Response("Not Found", { status: 404 });
+    return errorResponse(404, "not_found");
   }
 
   const filePath = storagePaths.uploadPath(record.storageId, record.fileExtension);
   const file = Bun.file(filePath);
   if (!(await file.exists())) {
-    return new Response("Internal Server Error", { status: 500 });
+    return errorResponse(500, "internal_error");
   }
 
   const headers = new Headers({ "content-type": "application/octet-stream" });

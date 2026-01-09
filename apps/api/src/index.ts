@@ -3,6 +3,7 @@ import { resolve, join, basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Route } from "./routes/types";
 import { initStorage } from "./storage";
+import { errorResponse } from "./errors";
 
 const portRaw = process.env.API_PORT;
 if (!portRaw) {
@@ -23,7 +24,7 @@ const server = Bun.serve({
     const url = new URL(req.url);
     const route = matchRoute(routes, req.method, url.pathname);
     if (!route) {
-      return new Response("Not Found", { status: 404 });
+      return errorResponse(404, "not_found");
     }
     return route.handle(req);
   },

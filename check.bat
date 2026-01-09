@@ -57,6 +57,9 @@ if "%FAIL%"=="1" goto :cleanup
 call :phase_baseline
 if "%FAIL%"=="1" goto :cleanup
 
+call :phase_errors
+if "%FAIL%"=="1" goto :cleanup
+
 call :phase_sanitize
 if "%FAIL%"=="1" goto :cleanup
 
@@ -83,6 +86,7 @@ set "DOWNLOAD_FILE=%TEMP_DIR%\download-main.bin"
 set "UPLOAD_STATUS_FILE=%TEMP_DIR%\upload_main_status.txt"
 set "UPLOAD_BODY_FILE=%TEMP_DIR%\upload_main_body.txt"
 set "UPLOAD_TOKEN_FILE=%TEMP_DIR%\upload_main_token.txt"
+set "UPLOAD_TYPE_FILE=%TEMP_DIR%\upload_main_content_type.txt"
 set "INSPECT_STATUS_FILE=%TEMP_DIR%\inspect_main_status.txt"
 set "INSPECT_BODY_FILE=%TEMP_DIR%\inspect_main_body.txt"
 set "INSPECT_PARSED_FILE=%TEMP_DIR%\inspect_main_parsed.txt"
@@ -105,7 +109,7 @@ if not defined PAYLOAD_SIZE (
 echo [CHECK] payload size !PAYLOAD_SIZE! bytes
 
 echo [CHECK] request details: POST %BASE_URL%%UPLOAD_PATH% (baseline)
-call :upload_multipart "%PAYLOAD_FILE%" "application/octet-stream" "%UPLOAD_STATUS_FILE%" "%UPLOAD_BODY_FILE%"
+call :upload_multipart "%PAYLOAD_FILE%" "application/octet-stream" "%UPLOAD_STATUS_FILE%" "%UPLOAD_BODY_FILE%" "%UPLOAD_TYPE_FILE%"
 if errorlevel 1 (
   echo [FAIL] baseline upload request failed
   set "FAIL=1"
@@ -211,6 +215,55 @@ if "!PAYLOAD_SIZE!"=="!DOWNLOAD_SIZE!" (
 
 exit /b 0
 
+:phase_errors
+echo [CHECK] phase: errors
+set "ERROR_STATUS_FILE=%TEMP_DIR%\error_status.txt"
+set "ERROR_BODY_FILE=%TEMP_DIR%\error_body.txt"
+set "ERROR_TYPE_FILE=%TEMP_DIR%\error_content_type.txt"
+set "ERROR_PARSE_FILE=%TEMP_DIR%\error_parse.txt"
+
+if %MAX_UPLOAD_SIZE% LEQ 0 (
+  echo [FAIL] MAX_UPLOAD_SIZE must be greater than 0 to test payload_too_large
+  set "FAIL=1"
+  exit /b 0
+)
+
+set /a PAYLOAD_TOO_LARGE_BYTES=%MAX_UPLOAD_SIZE%+1024
+set "PAYLOAD_TOO_LARGE_FILE=%TEMP_DIR%\payload-too-large.bin"
+echo [CHECK] generating payload file %PAYLOAD_TOO_LARGE_FILE%
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $size = %PAYLOAD_TOO_LARGE_BYTES%; $pattern = [Text.Encoding]::ASCII.GetBytes('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'); $buffer = New-Object byte[] 65536; for ($i = 0; $i -lt $buffer.Length; $i++) { $buffer[$i] = $pattern[$i %% $pattern.Length] }; $remaining = $size; $fs = [IO.File]::Open('%PAYLOAD_TOO_LARGE_FILE%', [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None); try { while ($remaining -gt 0) { $toWrite = [Math]::Min($remaining, $buffer.Length); $fs.Write($buffer, 0, $toWrite); $remaining -= $toWrite } } finally { $fs.Close() }"
+if errorlevel 1 (
+  echo [FAIL] unable to generate payload file for too-large test
+  set "FAIL=1"
+  exit /b 0
+)
+
+echo [CHECK] request details: POST %BASE_URL%%UPLOAD_PATH% (too large)
+call :upload_multipart "%PAYLOAD_TOO_LARGE_FILE%" "application/octet-stream" "%ERROR_STATUS_FILE%" "%ERROR_BODY_FILE%" "%ERROR_TYPE_FILE%"
+if "%FAIL%"=="1" exit /b 0
+call :assert_error_response "%ERROR_STATUS_FILE%" "%ERROR_BODY_FILE%" "%ERROR_TYPE_FILE%" "413" "payload_too_large"
+if "%FAIL%"=="1" exit /b 0
+
+echo [CHECK] request details: POST %BASE_URL%%UPLOAD_PATH% (malformed)
+call :upload_malformed "%ERROR_STATUS_FILE%" "%ERROR_BODY_FILE%" "%ERROR_TYPE_FILE%"
+if "%FAIL%"=="1" exit /b 0
+call :assert_error_response "%ERROR_STATUS_FILE%" "%ERROR_BODY_FILE%" "%ERROR_TYPE_FILE%" "400" "bad_request"
+if "%FAIL%"=="1" exit /b 0
+
+echo [CHECK] request details: GET %BASE_URL%%DOWNLOAD_PATH%/this_token_should_not_exist_123 (not_found)
+call :request_error_get "%BASE_URL%%DOWNLOAD_PATH%/this_token_should_not_exist_123" "%ERROR_STATUS_FILE%" "%ERROR_BODY_FILE%" "%ERROR_TYPE_FILE%"
+if "%FAIL%"=="1" exit /b 0
+call :assert_error_response "%ERROR_STATUS_FILE%" "%ERROR_BODY_FILE%" "%ERROR_TYPE_FILE%" "404" "not_found"
+if "%FAIL%"=="1" exit /b 0
+
+echo [CHECK] request details: GET %BASE_URL%%INSPECT_PATH%/this_token_should_not_exist_123 (not_found)
+call :request_error_get "%BASE_URL%%INSPECT_PATH%/this_token_should_not_exist_123" "%ERROR_STATUS_FILE%" "%ERROR_BODY_FILE%" "%ERROR_TYPE_FILE%"
+if "%FAIL%"=="1" exit /b 0
+call :assert_error_response "%ERROR_STATUS_FILE%" "%ERROR_BODY_FILE%" "%ERROR_TYPE_FILE%" "404" "not_found"
+if "%FAIL%"=="1" exit /b 0
+
+exit /b 0
+
 :phase_sanitize
 echo [CHECK] phase: sanitization (PARCEL_STRIP_IMAGE_METADATA=%PARCEL_STRIP_IMAGE_METADATA%)
 
@@ -218,6 +271,7 @@ set "PNG_FILE=%TEMP_DIR%\fixture.png"
 set "UPLOAD_STATUS_FILE=%TEMP_DIR%\upload_png_off_status.txt"
 set "UPLOAD_BODY_FILE=%TEMP_DIR%\upload_png_off_body.txt"
 set "UPLOAD_TOKEN_FILE=%TEMP_DIR%\upload_png_off_token.txt"
+set "UPLOAD_TYPE_FILE=%TEMP_DIR%\upload_png_off_content_type.txt"
 set "INSPECT_STATUS_FILE=%TEMP_DIR%\inspect_png_off_status.txt"
 set "INSPECT_BODY_FILE=%TEMP_DIR%\inspect_png_off_body.txt"
 set "INSPECT_PARSED_FILE=%TEMP_DIR%\inspect_png_off_parsed.txt"
@@ -245,7 +299,7 @@ if %MAX_UPLOAD_SIZE% GTR 0 if !PNG_SIZE! GTR %MAX_UPLOAD_SIZE% (
 )
 
 echo [CHECK] request details: POST %BASE_URL%%UPLOAD_PATH% (png fixture)
-call :upload_multipart "%PNG_FILE%" "image/png" "%UPLOAD_STATUS_FILE%" "%UPLOAD_BODY_FILE%"
+call :upload_multipart "%PNG_FILE%" "image/png" "%UPLOAD_STATUS_FILE%" "%UPLOAD_BODY_FILE%" "%UPLOAD_TYPE_FILE%"
 if errorlevel 1 (
   echo [FAIL] png upload request failed
   set "FAIL=1"
@@ -340,17 +394,91 @@ if errorlevel 1 (
 )
 exit /b 0
 
+:request_error_get
+set "REQ_URL=%~1"
+set "REQ_STATUS_FILE=%~2"
+set "REQ_BODY_FILE=%~3"
+set "REQ_TYPE_FILE=%~4"
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; try { $r = Invoke-WebRequest -UseBasicParsing -Uri '%REQ_URL%' -Method Get -TimeoutSec 30; $status = [int]$r.StatusCode; $body = $r.Content; $contentType = $r.Headers['Content-Type'] } catch { if ($_.Exception.Response) { $resp = $_.Exception.Response; $status = [int]$resp.StatusCode; $contentType = $resp.ContentType; try { $reader = New-Object IO.StreamReader($resp.GetResponseStream()); $body = $reader.ReadToEnd() } catch { $body = '' } } else { throw } }; [IO.File]::WriteAllText('%REQ_STATUS_FILE%', [string]$status, [Text.Encoding]::ASCII); [IO.File]::WriteAllText('%REQ_BODY_FILE%', $body, [Text.Encoding]::ASCII); [IO.File]::WriteAllText('%REQ_TYPE_FILE%', [string]$contentType, [Text.Encoding]::ASCII)"
+if errorlevel 1 (
+  echo [FAIL] request failed: %REQ_URL%
+  set "FAIL=1"
+)
+exit /b 0
+
 :upload_multipart
 set "UPLOAD_FILE=%~1"
 set "UPLOAD_CONTENT_TYPE=%~2"
 set "STATUS_FILE=%~3"
 set "BODY_FILE=%~4"
+set "TYPE_FILE=%~5"
 
-powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $filePath = '%UPLOAD_FILE%'; $fileName = [IO.Path]::GetFileName($filePath); $boundary = [Guid]::NewGuid().ToString('N'); $line = \"`r`n\"; $header = \"--$boundary$line\" + \"Content-Disposition: form-data; name=`\"file`\"; filename=`\"$fileName`\"$line\" + \"Content-Type: %UPLOAD_CONTENT_TYPE%$line$line\"; $footer = \"$line--$boundary--$line\"; $headerBytes = [Text.Encoding]::ASCII.GetBytes($header); $fileBytes = [IO.File]::ReadAllBytes($filePath); $footerBytes = [Text.Encoding]::ASCII.GetBytes($footer); $bodyBytes = New-Object byte[] ($headerBytes.Length + $fileBytes.Length + $footerBytes.Length); [Buffer]::BlockCopy($headerBytes, 0, $bodyBytes, 0, $headerBytes.Length); [Buffer]::BlockCopy($fileBytes, 0, $bodyBytes, $headerBytes.Length, $fileBytes.Length); [Buffer]::BlockCopy($footerBytes, 0, $bodyBytes, $headerBytes.Length + $fileBytes.Length, $footerBytes.Length); try { $resp = Invoke-WebRequest -UseBasicParsing -Uri '%BASE_URL%%UPLOAD_PATH%' -Method Post -ContentType \"multipart/form-data; boundary=$boundary\" -Body $bodyBytes -TimeoutSec 60; $status = [int]$resp.StatusCode; $body = $resp.Content } catch { if ($_.Exception.Response) { $resp = $_.Exception.Response; $status = [int]$resp.StatusCode; try { $reader = New-Object IO.StreamReader($resp.GetResponseStream()); $body = $reader.ReadToEnd() } catch { $body = '' } } else { throw } }; [IO.File]::WriteAllText('%STATUS_FILE%', [string]$status, [Text.Encoding]::ASCII); [IO.File]::WriteAllText('%BODY_FILE%', $body, [Text.Encoding]::ASCII)"
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $filePath = '%UPLOAD_FILE%'; $fileName = [IO.Path]::GetFileName($filePath); $boundary = [Guid]::NewGuid().ToString('N'); $line = \"`r`n\"; $header = \"--$boundary$line\" + \"Content-Disposition: form-data; name=`\"file`\"; filename=`\"$fileName`\"$line\" + \"Content-Type: %UPLOAD_CONTENT_TYPE%$line$line\"; $footer = \"$line--$boundary--$line\"; $headerBytes = [Text.Encoding]::ASCII.GetBytes($header); $fileBytes = [IO.File]::ReadAllBytes($filePath); $footerBytes = [Text.Encoding]::ASCII.GetBytes($footer); $bodyBytes = New-Object byte[] ($headerBytes.Length + $fileBytes.Length + $footerBytes.Length); [Buffer]::BlockCopy($headerBytes, 0, $bodyBytes, 0, $headerBytes.Length); [Buffer]::BlockCopy($fileBytes, 0, $bodyBytes, $headerBytes.Length, $fileBytes.Length); [Buffer]::BlockCopy($footerBytes, 0, $bodyBytes, $headerBytes.Length + $fileBytes.Length, $footerBytes.Length); try { $resp = Invoke-WebRequest -UseBasicParsing -Uri '%BASE_URL%%UPLOAD_PATH%' -Method Post -ContentType \"multipart/form-data; boundary=$boundary\" -Body $bodyBytes -TimeoutSec 60; $status = [int]$resp.StatusCode; $body = $resp.Content; $contentType = $resp.Headers['Content-Type'] } catch { if ($_.Exception.Response) { $resp = $_.Exception.Response; $status = [int]$resp.StatusCode; $contentType = $resp.ContentType; try { $reader = New-Object IO.StreamReader($resp.GetResponseStream()); $body = $reader.ReadToEnd() } catch { $body = '' } } else { throw } }; [IO.File]::WriteAllText('%STATUS_FILE%', [string]$status, [Text.Encoding]::ASCII); [IO.File]::WriteAllText('%BODY_FILE%', $body, [Text.Encoding]::ASCII); if ('%TYPE_FILE%' -ne '') { [IO.File]::WriteAllText('%TYPE_FILE%', [string]$contentType, [Text.Encoding]::ASCII) }"
 if errorlevel 1 (
   echo [FAIL] multipart upload failed for %UPLOAD_FILE%
   set "FAIL=1"
 )
+exit /b 0
+
+:upload_malformed
+set "STATUS_FILE=%~1"
+set "BODY_FILE=%~2"
+set "TYPE_FILE=%~3"
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $body = 'bad'; try { $resp = Invoke-WebRequest -UseBasicParsing -Uri '%BASE_URL%%UPLOAD_PATH%' -Method Post -ContentType 'text/plain' -Body $body -TimeoutSec 30; $status = [int]$resp.StatusCode; $content = $resp.Content; $contentType = $resp.Headers['Content-Type'] } catch { if ($_.Exception.Response) { $resp = $_.Exception.Response; $status = [int]$resp.StatusCode; $contentType = $resp.ContentType; try { $reader = New-Object IO.StreamReader($resp.GetResponseStream()); $content = $reader.ReadToEnd() } catch { $content = '' } } else { throw } }; [IO.File]::WriteAllText('%STATUS_FILE%', [string]$status, [Text.Encoding]::ASCII); [IO.File]::WriteAllText('%BODY_FILE%', $content, [Text.Encoding]::ASCII); [IO.File]::WriteAllText('%TYPE_FILE%', [string]$contentType, [Text.Encoding]::ASCII)"
+if errorlevel 1 (
+  echo [FAIL] malformed upload request failed
+  set "FAIL=1"
+)
+exit /b 0
+
+:assert_error_response
+set "STATUS_FILE=%~1"
+set "BODY_FILE=%~2"
+set "TYPE_FILE=%~3"
+set "EXPECTED_STATUS=%~4"
+set "EXPECTED_CODE=%~5"
+
+set /p ACTUAL_STATUS=<"%STATUS_FILE%"
+set /p ACTUAL_BODY=<"%BODY_FILE%"
+set /p ACTUAL_TYPE=<"%TYPE_FILE%"
+
+echo [CHECK] response status !ACTUAL_STATUS!
+echo [CHECK] response body !ACTUAL_BODY!
+echo [CHECK] response content-type !ACTUAL_TYPE!
+
+if not "!ACTUAL_STATUS!"=="%EXPECTED_STATUS%" (
+  echo [FAIL] expected status %EXPECTED_STATUS% but got !ACTUAL_STATUS!
+  set "FAIL=1"
+  exit /b 0
+)
+
+echo !ACTUAL_TYPE! | findstr /i "application/json" >nul
+if errorlevel 1 (
+  echo [FAIL] expected content-type application/json but got !ACTUAL_TYPE!
+  set "FAIL=1"
+  exit /b 0
+)
+
+set "ERR_CODE="
+set "ERR_COUNT="
+set "HAS_ONLY_ERROR="
+for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $json = Get-Content -Raw -LiteralPath '%BODY_FILE%'; $obj = ConvertFrom-Json -InputObject $json; $props = $obj.PSObject.Properties.Name; $count = $props.Count; $code = $obj.error; 'ERR_CODE=' + $code; 'ERR_COUNT=' + $count; 'HAS_ONLY_ERROR=' + (($count -eq 1) -and ($props -contains 'error'))"`) do (
+  set "%%A"
+)
+
+if not "!HAS_ONLY_ERROR!"=="True" (
+  echo [FAIL] error body must contain only "error" field
+  set "FAIL=1"
+  exit /b 0
+)
+
+if not "!ERR_CODE!"=="%EXPECTED_CODE%" (
+  echo [FAIL] expected error code %EXPECTED_CODE% but got !ERR_CODE!
+  set "FAIL=1"
+  exit /b 0
+)
+
+echo [PASS] error response %EXPECTED_STATUS% %EXPECTED_CODE%
 exit /b 0
 
 :extract_token

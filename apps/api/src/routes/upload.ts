@@ -2,6 +2,7 @@ import { mkdir, rename, unlink } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import type { Route } from "./types";
 import { normalizeFileExtension } from "../content_type";
+import { errorResponse } from "../errors";
 import { appendIndexEntry, storagePaths, tokenToStorage, type StoredRecord } from "../storage";
 
 const base64Url = (bytes: Uint8Array) =>
@@ -222,12 +223,12 @@ const moveTempToFinal = async (tempPath: string, finalPath: string) => {
 
 const handleUpload = async (req: Request) => {
   if (!req.body) {
-    return new Response("Bad Request", { status: 400 });
+    return errorResponse(400, "bad_request");
   }
 
   const contentTypeHeader = req.headers.get("content-type") ?? "";
   if (!contentTypeHeader.toLowerCase().startsWith("multipart/form-data")) {
-    return new Response("Bad Request", { status: 400 });
+    return errorResponse(400, "bad_request");
   }
 
   let uploadFile: File | null = null;
@@ -238,16 +239,16 @@ const handleUpload = async (req: Request) => {
       uploadFile = field;
     }
   } catch {
-    return new Response("Bad Request", { status: 400 });
+    return errorResponse(400, "bad_request");
   }
 
   if (!uploadFile) {
-    return new Response("Bad Request", { status: 400 });
+    return errorResponse(400, "bad_request");
   }
 
   const fileExtension = extractExtensionFromName(uploadFile.name);
   if (!fileExtension) {
-    return new Response("Bad Request", { status: 400 });
+    return errorResponse(400, "bad_request");
   }
 
   let token = randomToken();
@@ -277,12 +278,12 @@ const handleUpload = async (req: Request) => {
     tooLarge = streamed.tooLarge;
   } catch {
     await safeUnlink(writePath);
-    return new Response("Internal Server Error", { status: 500 });
+    return errorResponse(500, "internal_error");
   }
 
   if (tooLarge) {
     await safeUnlink(writePath);
-    return new Response("Payload Too Large", { status: 413 });
+    return errorResponse(413, "payload_too_large");
   }
 
   let sanitized = false;
@@ -308,7 +309,7 @@ const handleUpload = async (req: Request) => {
         } catch {
           await safeUnlink(tempPath);
           await safeUnlink(filePath);
-          return new Response("Internal Server Error", { status: 500 });
+          return errorResponse(500, "internal_error");
         }
       }
     } else {
@@ -333,9 +334,9 @@ const handleUpload = async (req: Request) => {
     };
     await appendIndexEntry(record);
     tokenToStorage.set(token, record);
-  } catch (error) {
+  } catch {
     await safeUnlink(filePath);
-    return new Response("Internal Server Error", { status: 500 });
+    return errorResponse(500, "internal_error");
   }
 
   return new Response(JSON.stringify({ token }), {
