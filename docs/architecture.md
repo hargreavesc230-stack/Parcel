@@ -1,22 +1,25 @@
 # Architecture
 
-Parcel is API-first, streaming-first, and disk-backed. Implemented endpoints are:
+Parcel is API-first, streaming-first, and disk-backed. Implemented endpoints:
 
 - `GET /health`
 - `POST /upload`
 - `GET /download/{token}`
+- `GET /inspect/{token}`
 
-Uploads are accepted via `POST /upload` and streamed directly to disk. Downloads
-are streamed back via `GET /download/{token}`.
+Uploads are streamed to disk under an operator-controlled `DATA_DIR`. Downloads
+stream bytes directly from disk. Access is link-only: the server returns a
+cryptographically random token after upload, and the token is the only
+client-facing identifier. No accounts, sessions, or identity exist.
 
-Access is link-only: the server returns a cryptographically random token after
-upload. The token is the only thing exposed to the client. No accounts, sessions,
-or user identity exist.
+Tokens are durable across restarts via an append-only `index.jsonl` file loaded
+at startup. Token collisions are handled by regenerating until unique.
 
-Uploads are stored using opaque, server-generated identifiers that are not derived
-from content. Token mappings are durable across restarts via an append-only
-`data/index.jsonl` file, and token collisions are handled by regenerating until
-unique.
+`POST /upload` honors `MAX_UPLOAD_SIZE`; exceeding the limit returns 413 without
+exposing internal paths. When `PARCEL_STRIP_IMAGE_METADATA=1`, the server makes
+a best-effort attempt to strip metadata for `image/jpeg` and `image/png` uploads
+only. Unsupported types are stored as-is.
 
-`POST /upload` honors `MAX_UPLOAD_SIZE` to limit upload size; exceeding the limit
-returns 413 without exposing internal paths.
+`GET /inspect/{token}` returns only the safe metadata fields created by the
+server (such as timestamps and byte size). It never exposes storage identifiers
+or internal paths.

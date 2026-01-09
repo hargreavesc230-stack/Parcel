@@ -1,7 +1,7 @@
-import { mkdir, unlink } from "node:fs/promises";
+import { mkdir, rename, unlink } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import type { Route } from "./types";
-import { appendIndexEntry, storagePaths, tokenToStorage } from "../storage";
+import { appendIndexEntry, storagePaths, tokenToStorage, type StoredRecord } from "../storage";
 
 const base64Url = (bytes: Uint8Array) =>
   Buffer.from(bytes)
@@ -22,6 +22,8 @@ const randomStorageId = (byteLength = 16) => {
   return Buffer.from(bytes).toString("hex");
 };
 
+const supportedSanitizeTypes = new Set(["image/jpeg", "image/png"]);
+
 const parseMaxUploadBytes = () => {
   const raw = process.env.MAX_UPLOAD_SIZE;
   if (!raw) {
@@ -34,7 +36,180 @@ const parseMaxUploadBytes = () => {
   return Math.floor(value);
 };
 
+const parseStripImageMetadata = () => {
+  const raw = process.env.PARCEL_STRIP_IMAGE_METADATA;
+  if (!raw) {
+    throw new Error("[api] PARCEL_STRIP_IMAGE_METADATA is required");
+  }
+  if (raw !== "0" && raw !== "1") {
+    throw new Error("[api] PARCEL_STRIP_IMAGE_METADATA must be 0 or 1");
+  }
+  return raw === "1";
+};
+
 const maxUploadBytes = parseMaxUploadBytes();
+const stripImageMetadata = parseStripImageMetadata();
+
+const getContentType = (req: Request) => {
+  const raw = req.headers.get("content-type");
+  if (!raw) return null;
+  const value = raw.split(";")[0]?.trim().toLowerCase();
+  return value || null;
+};
+
+const safeUnlink = async (path: string | null) => {
+  if (!path) return;
+  try {
+    await unlink(path);
+  } catch {}
+};
+
+const streamToFile = async (
+  filePath: string,
+  body: ReadableStream<Uint8Array>,
+  maxBytes: number,
+) => {
+  const targetFile = Bun.file(filePath);
+  const sink = targetFile.writer();
+  const reader = body.getReader();
+  let bytesWritten = 0;
+  let tooLarge = false;
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) {
+        const nextBytes = bytesWritten + value.byteLength;
+        if (maxBytes > 0 && nextBytes > maxBytes) {
+          tooLarge = true;
+          await reader.cancel();
+          break;
+        }
+        sink.write(value);
+        bytesWritten = nextBytes;
+      }
+    }
+    await sink.end();
+  } catch (error) {
+    try {
+      await sink.end(error instanceof Error ? error : undefined);
+    } catch {}
+    throw error;
+  }
+
+  return { bytesWritten, tooLarge };
+};
+
+const stripPngMetadata = (input: Uint8Array) => {
+  const data = Buffer.from(input);
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (data.length < signature.length || !data.subarray(0, signature.length).equals(signature)) {
+    throw new Error("invalid_png");
+  }
+
+  const chunks: Buffer[] = [signature];
+  let offset = signature.length;
+  while (offset + 8 <= data.length) {
+    const length = data.readUInt32BE(offset);
+    const type = data.subarray(offset + 4, offset + 8);
+    const total = 12 + length;
+    if (offset + total > data.length) {
+      throw new Error("invalid_png");
+    }
+    const firstType = type[0];
+    if (firstType === undefined) {
+      throw new Error("invalid_png");
+    }
+    const isCritical = firstType >= 65 && firstType <= 90;
+    if (isCritical) {
+      chunks.push(data.subarray(offset, offset + total));
+    }
+    const typeLabel = type.toString("ascii");
+    offset += total;
+    if (typeLabel === "IEND") break;
+  }
+
+  return Buffer.concat(chunks);
+};
+
+const stripJpegMetadata = (input: Uint8Array) => {
+  const data = Buffer.from(input);
+  if (data.length < 4 || data[0] !== 0xff || data[1] !== 0xd8) {
+    throw new Error("invalid_jpeg");
+  }
+
+  const chunks: Buffer[] = [data.subarray(0, 2)];
+  let offset = 2;
+  while (offset < data.length) {
+    if (data[offset] !== 0xff) {
+      throw new Error("invalid_jpeg");
+    }
+    if (offset + 1 >= data.length) {
+      throw new Error("invalid_jpeg");
+    }
+    const marker = data[offset + 1];
+    if (marker === undefined) {
+      throw new Error("invalid_jpeg");
+    }
+    if (marker === 0xd9) {
+      chunks.push(data.subarray(offset, offset + 2));
+      return Buffer.concat(chunks);
+    }
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      chunks.push(data.subarray(offset, offset + 2));
+      offset += 2;
+      continue;
+    }
+    if (marker === 0xda) {
+      if (offset + 4 > data.length) {
+        throw new Error("invalid_jpeg");
+      }
+      const length = data.readUInt16BE(offset + 2);
+      const segmentEnd = offset + 2 + length;
+      if (segmentEnd > data.length) {
+        throw new Error("invalid_jpeg");
+      }
+      chunks.push(data.subarray(offset, segmentEnd));
+      chunks.push(data.subarray(segmentEnd));
+      return Buffer.concat(chunks);
+    }
+    if (offset + 4 > data.length) {
+      throw new Error("invalid_jpeg");
+    }
+    const length = data.readUInt16BE(offset + 2);
+    const segmentEnd = offset + 2 + length;
+    if (segmentEnd > data.length) {
+      throw new Error("invalid_jpeg");
+    }
+    const isMetadata = marker === 0xfe || (marker >= 0xe0 && marker <= 0xef);
+    if (!isMetadata) {
+      chunks.push(data.subarray(offset, segmentEnd));
+    }
+    offset = segmentEnd;
+  }
+
+  return Buffer.concat(chunks);
+};
+
+const sanitizeImage = (contentType: string, input: Uint8Array) => {
+  if (contentType === "image/png") {
+    return stripPngMetadata(input);
+  }
+  if (contentType === "image/jpeg") {
+    return stripJpegMetadata(input);
+  }
+  throw new Error("unsupported_type");
+};
+
+const moveTempToFinal = async (tempPath: string, finalPath: string) => {
+  try {
+    await rename(tempPath, finalPath);
+  } catch {
+    await Bun.write(finalPath, Bun.file(tempPath));
+    await safeUnlink(tempPath);
+  }
+};
 
 const handleUpload = async (req: Request) => {
   if (!req.body) {
@@ -54,57 +229,79 @@ const handleUpload = async (req: Request) => {
   }
 
   await mkdir(storagePaths.uploadsDir, { recursive: true });
-  const targetFile = Bun.file(filePath);
-  const sink = targetFile.writer();
-  const reader = req.body.getReader();
+  const contentType = getContentType(req);
+  const canSanitize =
+    stripImageMetadata && contentType !== null && supportedSanitizeTypes.has(contentType);
+  const tempPath = canSanitize ? `${filePath}.tmp` : null;
+  const writePath = tempPath ?? filePath;
   let bytesWritten = 0;
   let tooLarge = false;
 
   try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (value) {
-        const nextBytes = bytesWritten + value.byteLength;
-        if (maxUploadBytes > 0 && nextBytes > maxUploadBytes) {
-          tooLarge = true;
-          await reader.cancel();
-          break;
-        }
-        sink.write(value);
-        bytesWritten = nextBytes;
-      }
-    }
-    await sink.end();
-  } catch (error) {
-    try {
-      await sink.end(error instanceof Error ? error : undefined);
-    } catch {}
-    try {
-      await unlink(filePath);
-    } catch {}
+    const streamed = await streamToFile(writePath, req.body, maxUploadBytes);
+    bytesWritten = streamed.bytesWritten;
+    tooLarge = streamed.tooLarge;
+  } catch {
+    await safeUnlink(writePath);
     return new Response("Internal Server Error", { status: 500 });
   }
 
   if (tooLarge) {
-    try {
-      await unlink(filePath);
-    } catch {
-      return new Response("Internal Server Error", { status: 500 });
-    }
+    await safeUnlink(writePath);
     return new Response("Payload Too Large", { status: 413 });
   }
 
-  try {
-    await appendIndexEntry({ token, storageId, createdAt: new Date().toISOString() });
-  } catch (error) {
-    try {
-      await unlink(filePath);
-    } catch {}
-    return new Response("Internal Server Error", { status: 500 });
+  let sanitized = false;
+  let sanitizeReason: StoredRecord["sanitizeReason"] = "disabled";
+  let sanitizeError: string | null = null;
+  let finalByteSize = bytesWritten;
+
+  if (stripImageMetadata) {
+    if (canSanitize && tempPath) {
+      try {
+        const input = new Uint8Array(await Bun.file(tempPath).arrayBuffer());
+        const output = sanitizeImage(contentType ?? "", input);
+        await Bun.write(filePath, output);
+        await safeUnlink(tempPath);
+        sanitized = true;
+        sanitizeReason = "applied";
+        finalByteSize = output.byteLength;
+      } catch {
+        sanitizeReason = "failed";
+        sanitizeError = "sanitize_failed";
+        try {
+          await moveTempToFinal(tempPath, filePath);
+        } catch {
+          await safeUnlink(tempPath);
+          await safeUnlink(filePath);
+          return new Response("Internal Server Error", { status: 500 });
+        }
+      }
+    } else {
+      sanitizeReason = "unsupported_type";
+    }
+  } else {
+    sanitizeReason = "disabled";
   }
 
-  tokenToStorage.set(token, storageId);
+  try {
+    const record: StoredRecord = {
+      token,
+      storageId,
+      createdAt: new Date().toISOString(),
+      byteSize: finalByteSize,
+      contentType,
+      uploadComplete: true,
+      sanitized,
+      sanitizeReason,
+      sanitizeError,
+    };
+    await appendIndexEntry(record);
+    tokenToStorage.set(token, record);
+  } catch (error) {
+    await safeUnlink(filePath);
+    return new Response("Internal Server Error", { status: 500 });
+  }
 
   return new Response(JSON.stringify({ token }), {
     status: 201,

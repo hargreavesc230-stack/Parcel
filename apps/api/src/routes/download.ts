@@ -13,12 +13,12 @@ const handleDownload = async (req: Request) => {
   if (!token) {
     return new Response("Not Found", { status: 404 });
   }
-  const storageId = tokenToStorage.get(token);
-  if (!storageId) {
+  const record = tokenToStorage.get(token);
+  if (!record) {
     return new Response("Not Found", { status: 404 });
   }
 
-  const filePath = storagePaths.uploadPath(storageId);
+  const filePath = storagePaths.uploadPath(record.storageId);
   const file = Bun.file(filePath);
   if (!(await file.exists())) {
     return new Response("Internal Server Error", { status: 500 });
