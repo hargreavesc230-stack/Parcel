@@ -17,6 +17,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # api runtime data
 apps/api/data/
+apps/api/.data/
 
 # dotenv environment variable files
 .env

@@ -7,7 +7,12 @@ export type TokenRecord = {
   createdAt?: string;
 };
 
-const dataRoot = resolve(process.env.DATA_DIR ?? "./data");
+const dataRootRaw = process.env.DATA_DIR;
+if (!dataRootRaw) {
+  throw new Error("[api] DATA_DIR is required");
+}
+const repoRoot = resolve(import.meta.dir, "..", "..", "..");
+const dataRoot = resolve(repoRoot, dataRootRaw);
 const uploadsDir = join(dataRoot, "uploads");
 const indexFile = join(dataRoot, "index.jsonl");
 

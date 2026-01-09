@@ -17,3 +17,6 @@ Uploads are stored using opaque, server-generated identifiers that are not deriv
 from content. Token mappings are durable across restarts via an append-only
 `data/index.jsonl` file, and token collisions are handled by regenerating until
 unique.
+
+`POST /upload` honors `MAX_UPLOAD_SIZE` to limit upload size; exceeding the limit
+returns 413 without exposing internal paths.

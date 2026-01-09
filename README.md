@@ -12,7 +12,7 @@ To run the API:
 bun run dev:api
 ```
 
-To run checks (script starts and stops the server):
+To run checks (server is started manually):
 
 ```bash
 bun run check
@@ -26,3 +26,6 @@ Existing endpoint:
 
 Tokens are durable across restarts via an append-only `data/index.jsonl` file, and
 token collisions are handled by regenerating until unique.
+
+`MAX_UPLOAD_SIZE` controls the maximum upload size in bytes. Set `0` for
+unlimited.

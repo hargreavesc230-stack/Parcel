@@ -4,7 +4,14 @@ import { pathToFileURL } from "node:url";
 import type { Route } from "./routes/types";
 import { initStorage } from "./storage";
 
-const port = Number(process.env.API_PORT ?? "8787");
+const portRaw = process.env.API_PORT;
+if (!portRaw) {
+  throw new Error("[api] API_PORT is required");
+}
+const port = Number(portRaw);
+if (!Number.isFinite(port) || port <= 0) {
+  throw new Error("[api] API_PORT must be a positive number");
+}
 
 await initStorage();
 
