@@ -7,7 +7,7 @@ endpoints that exist.
 Current coverage:
 
 - `GET /health` readiness
-- `POST /upload` with a deterministic payload
+- `POST /upload` as multipart/form-data with a deterministic payload
 - `GET /download/{token}` and byte-for-byte integrity check
 - `GET /inspect/{token}` with validation of required safe fields
 - Image sanitization behavior based on current `PARCEL_STRIP_IMAGE_METADATA`

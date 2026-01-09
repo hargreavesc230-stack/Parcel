@@ -44,3 +44,8 @@ unlimited.
 `PARCEL_STRIP_IMAGE_METADATA` controls best-effort metadata stripping for
 `image/jpeg` and `image/png` uploads only. Unsupported types are stored as-is,
 and sanitization can fail without losing the upload.
+
+Uploads are `multipart/form-data` with a `file` field. The server keeps only the
+file extension from the uploaded filename (no original name is stored).
+Downloads use a random filename with the stored extension in the
+`Content-Disposition` header.

@@ -1,6 +1,7 @@
 import { mkdir, rename, unlink } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import type { Route } from "./types";
+import { normalizeFileExtension } from "../content_type";
 import { appendIndexEntry, storagePaths, tokenToStorage, type StoredRecord } from "../storage";
 
 const base64Url = (bytes: Uint8Array) =>
@@ -50,11 +51,19 @@ const parseStripImageMetadata = () => {
 const maxUploadBytes = parseMaxUploadBytes();
 const stripImageMetadata = parseStripImageMetadata();
 
-const getContentType = (req: Request) => {
-  const raw = req.headers.get("content-type");
+const getContentType = (raw: string | null) => {
   if (!raw) return null;
   const value = raw.split(";")[0]?.trim().toLowerCase();
   return value || null;
+};
+
+const extractExtensionFromName = (name: string) => {
+  const normalized = name.replace(/\\/g, "/");
+  const base = normalized.split("/").pop() ?? "";
+  const dotIndex = base.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex === base.length - 1) return null;
+  const candidate = base.slice(dotIndex + 1);
+  return normalizeFileExtension(candidate);
 };
 
 const safeUnlink = async (path: string | null) => {
@@ -216,20 +225,45 @@ const handleUpload = async (req: Request) => {
     return new Response("Bad Request", { status: 400 });
   }
 
+  const contentTypeHeader = req.headers.get("content-type") ?? "";
+  if (!contentTypeHeader.toLowerCase().startsWith("multipart/form-data")) {
+    return new Response("Bad Request", { status: 400 });
+  }
+
+  let uploadFile: File | null = null;
+  try {
+    const form = await req.formData();
+    const field = form.get("file");
+    if (field instanceof File) {
+      uploadFile = field;
+    }
+  } catch {
+    return new Response("Bad Request", { status: 400 });
+  }
+
+  if (!uploadFile) {
+    return new Response("Bad Request", { status: 400 });
+  }
+
+  const fileExtension = extractExtensionFromName(uploadFile.name);
+  if (!fileExtension) {
+    return new Response("Bad Request", { status: 400 });
+  }
+
   let token = randomToken();
   while (tokenToStorage.has(token)) {
     token = randomToken();
   }
 
   let storageId = randomStorageId();
-  let filePath = storagePaths.uploadPath(storageId);
+  let filePath = storagePaths.uploadPath(storageId, fileExtension);
   while (await Bun.file(filePath).exists()) {
     storageId = randomStorageId();
-    filePath = storagePaths.uploadPath(storageId);
+    filePath = storagePaths.uploadPath(storageId, fileExtension);
   }
 
   await mkdir(storagePaths.uploadsDir, { recursive: true });
-  const contentType = getContentType(req);
+  const contentType = getContentType(uploadFile.type);
   const canSanitize =
     stripImageMetadata && contentType !== null && supportedSanitizeTypes.has(contentType);
   const tempPath = canSanitize ? `${filePath}.tmp` : null;
@@ -238,7 +272,7 @@ const handleUpload = async (req: Request) => {
   let tooLarge = false;
 
   try {
-    const streamed = await streamToFile(writePath, req.body, maxUploadBytes);
+    const streamed = await streamToFile(writePath, uploadFile.stream(), maxUploadBytes);
     bytesWritten = streamed.bytesWritten;
     tooLarge = streamed.tooLarge;
   } catch {
@@ -291,6 +325,7 @@ const handleUpload = async (req: Request) => {
       createdAt: new Date().toISOString(),
       byteSize: finalByteSize,
       contentType,
+      fileExtension,
       uploadComplete: true,
       sanitized,
       sanitizeReason,

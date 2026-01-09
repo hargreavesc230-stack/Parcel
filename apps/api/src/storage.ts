@@ -7,6 +7,7 @@ export type StoredRecord = {
   createdAt: string | null;
   byteSize: number | null;
   contentType: string | null;
+  fileExtension: string | null;
   uploadComplete: boolean;
   sanitized: boolean;
   sanitizeReason: "disabled" | "unsupported_type" | "applied" | "failed" | "unknown";
@@ -39,7 +40,8 @@ export const storagePaths = {
   dataRoot,
   uploadsDir,
   indexFile,
-  uploadPath: (storageId: string) => join(uploadsDir, storageId),
+  uploadPath: (storageId: string, fileExtension?: string | null) =>
+    join(uploadsDir, `${storageId}${fileExtension ?? ""}`),
 };
 
 export const initStorage = async () => {
@@ -54,6 +56,7 @@ export const appendIndexEntry = async (record: StoredRecord) => {
     created_at: record.createdAt,
     byte_size: record.byteSize,
     content_type: record.contentType,
+    file_extension: record.fileExtension,
     upload_complete: record.uploadComplete,
     sanitized: record.sanitized,
     sanitize_reason: record.sanitizeReason,
@@ -95,6 +98,7 @@ const loadIndex = async () => {
       created_at?: unknown;
       byte_size?: unknown;
       content_type?: unknown;
+      file_extension?: unknown;
       upload_complete?: unknown;
       sanitized?: unknown;
       sanitize_reason?: unknown;
@@ -114,6 +118,7 @@ const loadIndex = async () => {
       createdAt: typeof entry.created_at === "string" ? entry.created_at : null,
       byteSize: typeof entry.byte_size === "number" ? entry.byte_size : null,
       contentType: typeof entry.content_type === "string" ? entry.content_type : null,
+      fileExtension: typeof entry.file_extension === "string" ? entry.file_extension : null,
       uploadComplete: typeof entry.upload_complete === "boolean" ? entry.upload_complete : true,
       sanitized: typeof entry.sanitized === "boolean" ? entry.sanitized : false,
       sanitizeReason: isSanitizeReason(entry.sanitize_reason) ? entry.sanitize_reason : "unknown",

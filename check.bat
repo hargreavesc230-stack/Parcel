@@ -105,7 +105,7 @@ if not defined PAYLOAD_SIZE (
 echo [CHECK] payload size !PAYLOAD_SIZE! bytes
 
 echo [CHECK] request details: POST %BASE_URL%%UPLOAD_PATH% (baseline)
-powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $r = Invoke-WebRequest -UseBasicParsing -Uri '%BASE_URL%%UPLOAD_PATH%' -Method Post -InFile '%PAYLOAD_FILE%' -ContentType 'application/octet-stream' -TimeoutSec 60; [IO.File]::WriteAllText('%UPLOAD_STATUS_FILE%', [string]$r.StatusCode, [Text.Encoding]::ASCII); [IO.File]::WriteAllText('%UPLOAD_BODY_FILE%', $r.Content, [Text.Encoding]::ASCII)"
+call :upload_multipart "%PAYLOAD_FILE%" "application/octet-stream" "%UPLOAD_STATUS_FILE%" "%UPLOAD_BODY_FILE%"
 if errorlevel 1 (
   echo [FAIL] baseline upload request failed
   set "FAIL=1"
@@ -245,7 +245,7 @@ if %MAX_UPLOAD_SIZE% GTR 0 if !PNG_SIZE! GTR %MAX_UPLOAD_SIZE% (
 )
 
 echo [CHECK] request details: POST %BASE_URL%%UPLOAD_PATH% (png fixture)
-powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $r = Invoke-WebRequest -UseBasicParsing -Uri '%BASE_URL%%UPLOAD_PATH%' -Method Post -InFile '%PNG_FILE%' -ContentType 'image/png' -TimeoutSec 60; [IO.File]::WriteAllText('%UPLOAD_STATUS_FILE%', [string]$r.StatusCode, [Text.Encoding]::ASCII); [IO.File]::WriteAllText('%UPLOAD_BODY_FILE%', $r.Content, [Text.Encoding]::ASCII)"
+call :upload_multipart "%PNG_FILE%" "image/png" "%UPLOAD_STATUS_FILE%" "%UPLOAD_BODY_FILE%"
 if errorlevel 1 (
   echo [FAIL] png upload request failed
   set "FAIL=1"
@@ -336,6 +336,19 @@ set "REQ_BODY_FILE=%~3"
 powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $r = Invoke-WebRequest -UseBasicParsing -Uri '%REQ_URL%' -Method Get -TimeoutSec 30; [IO.File]::WriteAllText('%REQ_STATUS_FILE%', [string]$r.StatusCode, [Text.Encoding]::ASCII); [IO.File]::WriteAllText('%REQ_BODY_FILE%', $r.Content, [Text.Encoding]::ASCII)"
 if errorlevel 1 (
   echo [FAIL] request failed: %REQ_URL%
+  set "FAIL=1"
+)
+exit /b 0
+
+:upload_multipart
+set "UPLOAD_FILE=%~1"
+set "UPLOAD_CONTENT_TYPE=%~2"
+set "STATUS_FILE=%~3"
+set "BODY_FILE=%~4"
+
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $filePath = '%UPLOAD_FILE%'; $fileName = [IO.Path]::GetFileName($filePath); $boundary = [Guid]::NewGuid().ToString('N'); $line = \"`r`n\"; $header = \"--$boundary$line\" + \"Content-Disposition: form-data; name=`\"file`\"; filename=`\"$fileName`\"$line\" + \"Content-Type: %UPLOAD_CONTENT_TYPE%$line$line\"; $footer = \"$line--$boundary--$line\"; $headerBytes = [Text.Encoding]::ASCII.GetBytes($header); $fileBytes = [IO.File]::ReadAllBytes($filePath); $footerBytes = [Text.Encoding]::ASCII.GetBytes($footer); $bodyBytes = New-Object byte[] ($headerBytes.Length + $fileBytes.Length + $footerBytes.Length); [Buffer]::BlockCopy($headerBytes, 0, $bodyBytes, 0, $headerBytes.Length); [Buffer]::BlockCopy($fileBytes, 0, $bodyBytes, $headerBytes.Length, $fileBytes.Length); [Buffer]::BlockCopy($footerBytes, 0, $bodyBytes, $headerBytes.Length + $fileBytes.Length, $footerBytes.Length); try { $resp = Invoke-WebRequest -UseBasicParsing -Uri '%BASE_URL%%UPLOAD_PATH%' -Method Post -ContentType \"multipart/form-data; boundary=$boundary\" -Body $bodyBytes -TimeoutSec 60; $status = [int]$resp.StatusCode; $body = $resp.Content } catch { if ($_.Exception.Response) { $resp = $_.Exception.Response; $status = [int]$resp.StatusCode; try { $reader = New-Object IO.StreamReader($resp.GetResponseStream()); $body = $reader.ReadToEnd() } catch { $body = '' } } else { throw } }; [IO.File]::WriteAllText('%STATUS_FILE%', [string]$status, [Text.Encoding]::ASCII); [IO.File]::WriteAllText('%BODY_FILE%', $body, [Text.Encoding]::ASCII)"
+if errorlevel 1 (
+  echo [FAIL] multipart upload failed for %UPLOAD_FILE%
   set "FAIL=1"
 )
 exit /b 0

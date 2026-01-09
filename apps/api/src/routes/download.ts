@@ -18,19 +18,33 @@ const handleDownload = async (req: Request) => {
     return new Response("Not Found", { status: 404 });
   }
 
-  const filePath = storagePaths.uploadPath(record.storageId);
+  const filePath = storagePaths.uploadPath(record.storageId, record.fileExtension);
   const file = Bun.file(filePath);
   if (!(await file.exists())) {
     return new Response("Internal Server Error", { status: 500 });
   }
 
   const headers = new Headers({ "content-type": "application/octet-stream" });
+  const downloadName = randomDownloadName();
+  const extension = record.fileExtension ?? "";
+  headers.set("content-disposition", `attachment; filename="${downloadName}${extension}"`);
   if (Number.isFinite(file.size)) {
     headers.set("content-length", String(file.size));
   }
 
   return new Response(file, { status: 200, headers });
 };
+
+const randomDownloadName = (byteLength = 12) => {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return Buffer.from(bytes)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+};
+
 
 export const route: Route = {
   method: "GET",

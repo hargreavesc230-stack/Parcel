@@ -7,8 +7,10 @@ Parcel is API-first, streaming-first, and disk-backed. Implemented endpoints:
 - `GET /download/{token}`
 - `GET /inspect/{token}`
 
-Uploads are streamed to disk under an operator-controlled `DATA_DIR`. Downloads
-stream bytes directly from disk. Access is link-only: the server returns a
+Uploads are accepted as multipart form uploads (field `file`) and streamed to
+disk under an operator-controlled `DATA_DIR`. The server stores only the file
+extension from the uploaded filename, never the original name. Downloads stream
+bytes directly from disk. Access is link-only: the server returns a
 cryptographically random token after upload, and the token is the only
 client-facing identifier. No accounts, sessions, or identity exist.
 

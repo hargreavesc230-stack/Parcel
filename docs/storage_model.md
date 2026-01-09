@@ -12,9 +12,9 @@ DATA_DIR/
 ```
 
 `DATA_DIR/uploads/` contains only raw file bytes. Filenames are server-generated,
-opaque identifiers that are never exposed to clients and are not derived from
-content. Tokens are separate, user-facing identifiers and are never used as
-filenames or paths.
+opaque identifiers with the file extension extracted from the uploaded filename
+(multipart). The original filename is never stored. Tokens are
+separate, user-facing identifiers and are never used as filenames or paths.
 
 `DATA_DIR/index.jsonl` is append-only. Each line is JSON with the minimal
 metadata the server creates:
@@ -24,6 +24,7 @@ metadata the server creates:
 - `created_at`
 - `byte_size`
 - `content_type`
+- `file_extension` (from the uploaded filename extension)
 - `upload_complete`
 - `sanitized`
 - `sanitize_reason`
