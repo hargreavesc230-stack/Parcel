@@ -21,3 +21,6 @@ bun run check
 Existing endpoint:
 
 - `GET /health` -> `ok`
+- `POST /upload` -> returns JSON `{ "token": "..." }`
+
+Downloads are not implemented yet.
