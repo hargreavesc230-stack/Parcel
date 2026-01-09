@@ -1,5 +1,5 @@
 import type { Route } from "./types";
-import { tokenToStorage } from "../storage";
+import { storagePaths, tokenToStorage } from "../storage";
 
 const handleDownload = async (req: Request) => {
   const url = new URL(req.url);
@@ -13,12 +13,13 @@ const handleDownload = async (req: Request) => {
   if (!token) {
     return new Response("Not Found", { status: 404 });
   }
-  const record = tokenToStorage.get(token);
-  if (!record) {
+  const storageId = tokenToStorage.get(token);
+  if (!storageId) {
     return new Response("Not Found", { status: 404 });
   }
 
-  const file = Bun.file(record.path);
+  const filePath = storagePaths.uploadPath(storageId);
+  const file = Bun.file(filePath);
   if (!(await file.exists())) {
     return new Response("Internal Server Error", { status: 500 });
   }

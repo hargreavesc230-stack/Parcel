@@ -14,4 +14,6 @@ upload. The token is the only thing exposed to the client. No accounts, sessions
 or user identity exist.
 
 Uploads are stored using opaque, server-generated identifiers that are not derived
-from content. The token-to-storage mapping is kept in memory for now (alpha).
+from content. Token mappings are durable across restarts via an append-only
+`data/index.jsonl` file, and token collisions are handled by regenerating until
+unique.

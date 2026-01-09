@@ -2,8 +2,11 @@ import { readdir } from "node:fs/promises";
 import { resolve, join, basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Route } from "./routes/types";
+import { initStorage } from "./storage";
 
 const port = Number(process.env.API_PORT ?? "8787");
+
+await initStorage();
 
 const routes = await loadRoutes();
 

@@ -1,10 +1,8 @@
-import { mkdir } from "node:fs/promises";
-import { resolve, join } from "node:path";
+import { mkdir, unlink } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import type { Route } from "./types";
-import { tokenToStorage } from "../storage";
+import { appendIndexEntry, storagePaths, tokenToStorage } from "../storage";
 
-const dataRoot = resolve(process.env.DATA_DIR ?? "./data");
 const base64Url = (bytes: Uint8Array) =>
   Buffer.from(bytes)
     .toString("base64")
@@ -29,13 +27,19 @@ const handleUpload = async (req: Request) => {
     return new Response("Bad Request", { status: 400 });
   }
 
-  const token = randomToken();
-  const storageId = randomStorageId();
-  const shard = storageId.slice(0, 2);
-  const shardDir = join(dataRoot, shard);
-  const filePath = join(shardDir, storageId);
+  let token = randomToken();
+  while (tokenToStorage.has(token)) {
+    token = randomToken();
+  }
 
-  await mkdir(shardDir, { recursive: true });
+  let storageId = randomStorageId();
+  let filePath = storagePaths.uploadPath(storageId);
+  while (await Bun.file(filePath).exists()) {
+    storageId = randomStorageId();
+    filePath = storagePaths.uploadPath(storageId);
+  }
+
+  await mkdir(storagePaths.uploadsDir, { recursive: true });
   const targetFile = Bun.file(filePath);
   const sink = targetFile.writer();
   const reader = req.body.getReader();
@@ -56,7 +60,16 @@ const handleUpload = async (req: Request) => {
     return new Response("Internal Server Error", { status: 500 });
   }
 
-  tokenToStorage.set(token, { storageId, path: filePath });
+  try {
+    await appendIndexEntry({ token, storageId, createdAt: new Date().toISOString() });
+  } catch (error) {
+    try {
+      await unlink(filePath);
+    } catch {}
+    return new Response("Internal Server Error", { status: 500 });
+  }
+
+  tokenToStorage.set(token, storageId);
 
   return new Response(JSON.stringify({ token }), {
     status: 201,

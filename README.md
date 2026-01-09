@@ -24,4 +24,5 @@ Existing endpoint:
 - `POST /upload` -> returns JSON `{ "token": "..." }`
 - `GET /download/{token}` -> streams stored bytes
 
-Token-to-storage mappings are currently in memory (alpha), so restarts lose tokens.
+Tokens are durable across restarts via an append-only `data/index.jsonl` file, and
+token collisions are handled by regenerating until unique.
