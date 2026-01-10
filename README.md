@@ -20,6 +20,15 @@ To run the API:
 bun run dev:api
 ```
 
+To run the web UI:
+
+```bash
+bun run dev:web
+```
+
+The web dev server proxies `/health`, `/upload`, `/download`, and `/inspect` to
+`http://127.0.0.1:8787`, so keep the API running on that port.
+
 To run checks (server must already be running):
 
 ```bash
@@ -62,6 +71,15 @@ file extension from the uploaded filename (no original name is stored).
 Downloads use a random filename with the stored extension in the
 `Content-Disposition` header.
 Uploads without a filename extension are rejected with `bad_request`.
+
+Web UI:
+
+- `/` is a simple landing page.
+- `/upload` lets you upload a single file and returns a shareable download URL.
+- `/info` explains how Parcel works and the limitations.
+- There is no download UI by design.
+- The web UI is stateless; copy links immediately or they are lost on refresh.
+- The UI is Windows 95/98-inspired.
 
 Limitations:
 

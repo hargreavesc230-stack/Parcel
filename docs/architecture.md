@@ -19,6 +19,11 @@ Uploads without a filename extension are rejected with `bad_request`.
 Tokens are durable across restarts via an append-only `index.jsonl` file loaded
 at startup. Token collisions are handled by regenerating until unique.
 
+The web UI is a thin client over the API and adds no new behavior. It provides
+three routes: `/` (landing page), `/upload` (single-file upload that returns a
+shareable download URL), and `/info` (limitations and usage). There is no
+download UI by design.
+
 `POST /upload` honors `MAX_UPLOAD_SIZE`; exceeding the limit returns 413 without
 exposing internal paths. When `PARCEL_STRIP_IMAGE_METADATA=1`, the server makes
 a best-effort attempt to strip metadata for `image/jpeg` and `image/png` uploads
