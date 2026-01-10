@@ -4,10 +4,13 @@
   "private": true,
   "scripts": {
     "dev:api": "bun run --cwd apps/api dev",
+    "dev:web": "bun run --cwd apps/web dev",
+    "typecheck": "tsc -b --noEmit",
     "check": "./check.bat"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "typescript": "^5"

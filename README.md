@@ -1,5 +1,13 @@
 # parcel
 
+Parcel is a link-only, anonymous, streaming-first file drop API.
+
+Invariants:
+
+- No accounts, auth, users, sessions, or identity
+- No listings, search, or discovery
+- Tokens are the only access mechanism
+
 To install dependencies:
 
 ```bash
@@ -12,7 +20,7 @@ To run the API:
 bun run dev:api
 ```
 
-To run checks (server is started manually):
+To run checks (server must already be running):
 
 ```bash
 bun run check
@@ -36,6 +44,7 @@ file, and token collisions are handled by regenerating until unique.
 - `created_at`
 - `byte_size`
 - `content_type`
+- `file_extension`
 - `upload_complete`
 - `sanitized`
 - `sanitize_reason`
@@ -52,3 +61,10 @@ Uploads are `multipart/form-data` with a `file` field. The server keeps only the
 file extension from the uploaded filename (no original name is stored).
 Downloads use a random filename with the stored extension in the
 `Content-Disposition` header.
+Uploads without a filename extension are rejected with `bad_request`.
+
+Limitations:
+
+- Metadata stripping is best-effort and limited to `image/jpeg` and `image/png`
+- No content scanning or moderation
+- Tokens must be kept secret; possession is the only access control

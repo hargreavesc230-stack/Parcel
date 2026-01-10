@@ -29,6 +29,7 @@ const handleInspect = (req: Request) => {
     created_at: record.createdAt,
     byte_size: record.byteSize,
     content_type: record.contentType,
+    file_extension: record.fileExtension,
     upload_complete: record.uploadComplete,
     sanitized: record.sanitized,
     sanitize_reason: record.sanitizeReason,

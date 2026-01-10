@@ -15,6 +15,7 @@ DATA_DIR/
 opaque identifiers with the file extension extracted from the uploaded filename
 (multipart). The original filename is never stored. Tokens are
 separate, user-facing identifiers and are never used as filenames or paths.
+Uploads without a filename extension are rejected with `bad_request`.
 
 `DATA_DIR/index.jsonl` is append-only. Each line is JSON with the minimal
 metadata the server creates:
